@@ -1,0 +1,9 @@
+jQuery(function($){$('#command_bar_menu li a:not(.direct_link)').click(function(e){e.preventDefault();animateSlider(this.hash)});function animateSlider(hash){if(!$('#command_bar_content div.open').length){if(hash=='#bol'){openPopup(hash)}
+if(hash=='#tel'){openPopup(hash)}
+if(hash=='#meteo'){openPopup(hash)}
+if(hash=='#maps'){openPopup(hash)}}else{if(hash=='#bol'){openAndClose(hash)}
+if(hash=='#tel'){openAndClose(hash)}
+if(hash=='#meteo'){openAndClose(hash)}
+if(hash=='#maps'){openAndClose(hash)}}}
+function openPopup(hash){$(hash+'_popup').slideToggle().addClass('open')}
+function openAndClose(hash){if($(hash+'_popup').hasClass('open')){$($(hash+'_popup')).slideToggle().removeClass()}else{$('#command_bar_content div.open').slideToggle().removeClass();$(hash+'_popup').slideToggle().addClass('open')}}});jQuery(document).ready(function(){jQuery('a.e-gallery-item').click(function(event){event.preventDefault()})})

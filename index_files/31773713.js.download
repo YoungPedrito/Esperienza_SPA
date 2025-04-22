@@ -1,0 +1,64 @@
+_iub.csRC = { consApiKey: 'DLLISxBXfDkjhptEIUUxbFZ0sL66nvpB', consentDatabasePublicKey: 'LovujKPtmOIa3ORQySaeSOvPlabTRB62' }
+_iub.csEnabled = true;
+_iub.csPurposes = [1,4,3,5];
+_iub.cpUpd = 1741778070;
+_iub.csFeatures = {
+  geolocation_setting: true,
+  cookie_solution_white_labeling: 1,
+  rejection_recovery: false,
+  full_customization: true,
+  multiple_languages: true,
+  mobile_app_integration: false
+};
+_iub.csT = null;
+_iub.googleConsentModeV2 = true;
+_iub.totalNumberOfProviders = 4;
+_iub.csSiteConf = {"askConsentAtCookiePolicyUpdate":true,"cookiePolicyInOtherWindow":true,"countryDetection":true,"emailMarketing":{"styles":{"backgroundColor":"#1A1A1A","buttonsBackgroundColor":"#B08878","buttonsTextColor":"#FFFFFF","footerBackgroundColor":"#212121","footerTextColor":"#FFFFFF","textColor":"#FFFFFF"},"theme":"dark"},"enableFadp":true,"enableLgpd":true,"enableUspr":true,"floatingPreferencesButtonDisplay":"anchored-center-left","lgpdAppliesGlobally":false,"perPurposeConsent":true,"siteId":3910297,"storage":{"useSiteId":true},"whitelabel":false,"cookiePolicyId":31773713,"lang":"it","cookiePolicyUrl":"https://valturcristallo.com/cookie-policy/","privacyPolicyUrl":"https://valturcristallo.com/privacy-policy/","privacyPolicyNoticeAtCollectionUrl":"https://valturcristallo.com/privacy-policy/","callback":{"onPreferenceExpressedOrNotNeeded": function(preference) {
+  dataLayer.push({iubenda_ccpa_opted_out : _iub.cs.api.isCcpaOptedOut()});
+  if (!preference) {
+    dataLayer.push({event : "iubenda_preference_not_needed"});
+  } else {
+    if (preference.consent == true) {
+      dataLayer.push({event : "iubenda_consent_given"});
+    } else if (preference.consent == false) {
+      dataLayer.push({event : "iubenda_consent_rejected"});
+    } else if (preference.purposes) {
+      for (var purposeId in preference.purposes) {
+        if (preference.purposes[purposeId]) {
+          if (purposeId == 5) {
+            dataLayer.push({
+              event : "iubenda_consent_given_purpose_5",
+              consent_iubenda_5 : 5
+            });
+          } else if (purposeId == 4) {
+            dataLayer.push({
+              event : "iubenda_consent_given_purpose_4",
+              consent_iubenda_4 : 4
+            });
+          } else if (purposeId == 3) {
+            dataLayer.push({
+              event : "iubenda_consent_given_purpose_3",
+              consent_iubenda_3 : 3
+            });
+          } else if (purposeId == 2) {
+            dataLayer.push({
+              event : "iubenda_consent_given_purpose_2",
+              consent_iubenda_2 : 2
+            });
+          } else if (purposeId == 1) {
+            dataLayer.push({
+              event : "iubenda_consent_given_purpose_1",
+              consent_iubenda_1 : 1
+            });
+          } else {
+            dataLayer.push({
+              event : "iubenda_consent_given_purpose_" + purposeId,
+            });
+            dataLayer.push({event : "iubenda_consent_given"});
+          }
+        }
+      }
+      dataLayer.push({event : "iubenda_consent_given"});
+    }
+  }
+}},"banner":{"acceptButtonColor":"#B08878","acceptButtonDisplay":true,"backgroundColor":"#1A1A1A","closeButtonRejects":true,"customizeButtonDisplay":true,"explicitWithdrawal":true,"listPurposes":true,"ownerName":"valturcristallo.com","position":"bottom","rejectButtonColor":"#B08878","rejectButtonDisplay":true,"showPurposesToggles":true,"showTitle":false,"showTotalNumberOfProviders":true}};

@@ -1,0 +1,805 @@
+// dichiarazione del namespace
+var it = it || {};
+it.bookingexpert = it.bookingexpert || {};
+
+// classe per la visualizzazione del widget di ricerca
+it.bookingexpert.SearchBox = {};
+// dizionario codice/html dei widget di ricerca
+it.bookingexpert.SearchBox.html = [];
+// riferimento all'ultimo target
+it.bookingexpert.SearchBox.target = null;
+
+it.bookingexpert.SearchBox.gs = {};
+// carica il widtget associato al codice specificato all'interno di target
+it.bookingexpert.SearchBox.load = function (target, code, opts) {
+    if (typeof target === 'string') {
+        target = document.getElementById(target);
+    }
+    it.bookingexpert.SearchBox.target = target;
+    if (!code) {
+        code = '';
+    }
+    // impostazioni predefinite
+    opts = opts || {};
+    opts.modaltarget = opts.modaltarget || 'bemodalframe';
+    // cerca il box associato al codice
+    var found = null;
+    for (var i = 0; i < it.bookingexpert.SearchBox.html.length; i++) {
+        var box = it.bookingexpert.SearchBox.html[i];
+        if (code === '' || box.code === code) {
+            found = box.html;
+            break;
+        }
+    }
+    // se box non trovato mostra quello di default
+    if (found === null || found === '') {
+        found = '{simpleform}';
+    }
+    // visualizza la form di ricerca
+    it.bookingexpert.SearchBox.template(target, opts, found);
+    // imposta i parametri per il tracciamento su google analytics
+    it.bookingexpert.SearchBox.googleAnalytics('ga', null);
+    //initialize Booking Booster
+    it.bookingexpert.SearchBox.bookingBooster(target);
+};
+// imposta i parametri per il tracciamento su google analytics
+it.bookingexpert.SearchBox.googleAnalytics = function (gavar, target) {
+    var ga = window[gavar];
+    if (typeof ga !== 'undefined' && typeof jQuery !== 'undefined') {
+        ga(function () {
+            var trackers = ga.getAll();
+            trackers.forEach(function (tracker) {
+                var linker = new window.gaplugins.Linker(tracker);
+                var host = it.bookingexpert.SearchBox.url;
+                jQuery("a[href*='" + host + "']", target).click(function () {
+                    linker.decorate(this);
+                });
+                jQuery("form[action*='" + host + "']", target).submit(function () {
+                    linker.decorate(this);
+                });
+            });
+        });
+    }
+};
+// include il file javascript esterno ed esegue la funzione callback appena pronto
+it.bookingexpert.SearchBox.template = function (target, opts, html) {
+    // recupera i tag script dal codice del box
+    var scripts = '';
+    var cleaned = html.replace(/<script[^>]*>([\s\S]*?)<\/script>/gi, function () {
+        scripts += arguments[0];
+        return '';
+    });
+    // blocco offerte
+    cleaned = cleaned.replace(/\{offers(:([\d\w]+))?\}([\s\S]*?)\{\/offers\}/g, function (a, c, d, b) {
+        var h = '';
+        if (typeof it.bookingexpert.SearchBox.offers !== 'undefined') {
+            // cerca estensione
+            var n = null;
+            if (d) {
+                for (var g = 0; g < it.bookingexpert.SearchBox.jsonOffers.length; g++) {
+                    n = it.bookingexpert.SearchBox.jsonOffers[g];
+                    if (n.code === d) {
+                        break;
+                    }
+                }
+            }
+            // formatta le offerte
+            for (var j = 0; j < it.bookingexpert.SearchBox.offers.length; j++) {
+                var f = it.bookingexpert.SearchBox.offers[j];
+                if (n !== null) {
+                    var q = false;
+                    var r = f.type === 'rate' ? n.rates : n.sales;
+                    if (r !== null) {
+                        for (var g = 0; g < r.length; g++) {
+                            if (r[g] === f.id) {
+                                q = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!n.exclude && !q || n.exclude && q) {
+                        continue;
+                    }
+                }
+                h += b.replace(/\{([^\}]+)\}/g, function (c, d) {
+                    var f = it.bookingexpert.SearchBox.offers[j];
+                    var e = d.split('.');
+                    for (var g = 0; g < e.length; g++) {
+                        if (e[g] === 'hotel' && typeof it.bookingexpert.SearchBox.domain !== 'undefined') {
+                            // cerca informazioni hotel nel dominio
+                            for (var i = 0; i < it.bookingexpert.SearchBox.domain.hotels.length; i++) {
+                                var t = it.bookingexpert.SearchBox.domain.hotels[i];
+                                if (t.id === f[e[g]]) {
+                                    f = t;
+                                    break;
+                                }
+                            }
+                        } else {
+                            f = f[e[g]];
+                        }
+                        if (f === null) {
+                            break;
+                        }
+                    }
+                    return f === null ? '' : f;
+                });
+            }
+        }
+        return h;
+    });
+    // sostituisce i blocchi fino a esaurimento degli stessi
+    var blockexp = /\{(simpleform|hidden|services|categories|places|hotels|dates|guests|guesttypes|guesttypesgroups|ages|options|fieldset|coupon|agencycode|collections)(:(.+?))?\}/g;
+    var temp = '';
+    while (temp !== cleaned) {
+        temp = cleaned;
+        cleaned = temp.replace(blockexp, it.bookingexpert.SearchBox.replace);
+    }
+    // stampa nella destinazione solo html
+    target.innerHTML = cleaned;
+    // registra gli eventi predefiniti
+    var forms = target.getElementsByTagName('form');
+    for (var x = 0; x < forms.length; x++) {
+        if (forms[x].target === opts.modaltarget) {
+            forms[x].onsubmit = it.bookingexpert.SearchBox.modal;
+        }
+    }
+    // crea i tag script e esegue il codice
+    var div = document.createElement('div');
+    div.innerHTML = '.' + scripts;
+    for (var x = 1; x < div.childNodes.length; x++) {
+        var node = div.childNodes[x];
+        var src = node.getAttribute('src');
+        var script = document.createElement('script');
+        script.setAttribute('type', 'text/javascript');
+        if (src !== null) {
+            script.setAttribute('src', src);
+        }
+        script.text = node.innerHTML;
+        target.appendChild(script);
+    }
+};
+// codice html per la generazione del form default
+it.bookingexpert.SearchBox.replace = function () {
+    var b = arguments[1];
+    var c = arguments[3];
+    if (b === 'simpleform') {
+        return it.bookingexpert.SearchBox.replaceSimpleForm();
+    } else if (b === 'fieldset') {
+        return it.bookingexpert.SearchBox.replaceFieldset(c);
+    } else if (b === 'hidden') {
+        return it.bookingexpert.SearchBox.replaceHidden();
+    } else if (b === 'places') {
+        return it.bookingexpert.SearchBox.replacePlaces();
+    } else if (b === 'hotels') {
+        return it.bookingexpert.SearchBox.replaceHotels();
+    } else if (b === 'guests') {
+        return it.bookingexpert.SearchBox.replaceGuests(c);
+    } else if (b === 'guesttypes') {
+        return it.bookingexpert.SearchBox.replaceGuesttypes(c);
+    } else if (b === 'guesttypesgroups') {
+        return it.bookingexpert.SearchBox.replaceGuesttypesGroups(c);
+    } else if (b === 'services') {
+        return it.bookingexpert.SearchBox.replaceServices();
+    } else if (b === 'options') {
+        return it.bookingexpert.SearchBox.replaceOptions(c);
+    } else if (b === 'ages') {
+        return it.bookingexpert.SearchBox.replaceAges(c);
+    } else if (b === 'coupon') {
+        return it.bookingexpert.SearchBox.replaceCoupon(c);
+    } else if (b === 'agencycode') {
+        return it.bookingexpert.SearchBox.replaceAgencies(c);
+    } else if (b === 'categories') {
+        return it.bookingexpert.SearchBox.replaceCategories(c);
+    } else if (b === 'dates') {
+        return it.bookingexpert.SearchBox.replaceDates(c);
+    } else if (b === 'collections') {
+        return it.bookingexpert.SearchBox.replaceCollections(c);
+    }
+    return '';
+};
+
+it.bookingexpert.SearchBox.writeOptions = function (c) {
+    if (!c) {
+        c = '0,9';
+    }
+    var a = c.split(',').map(function (item) {
+        return parseInt(item, 10);
+    });
+    var str = '';
+    for (var y = a[0]; y <= a[1]; y++) {
+        str += '<option value="' + y + '"';
+        if (a[2] == y) {
+            str += ' selected="selected"';
+        }
+        str += '>' + y + '</option>';
+    }
+    return str;
+
+};
+// sostituisce le options per le select dinamiche
+it.bookingexpert.SearchBox.replaceOptions = function (c) {
+    var str = it.bookingexpert.SearchBox.writeOptions(c);
+    var a = c.split(',');
+    if (a.length === 5 && a[4] === 'guest') {
+        it.bookingexpert.SearchBox.gs['guesttypes[0][' + a[3] + ']'] = a[2];
+    }
+    return str;
+};
+
+it.bookingexpert.SearchBox.replaceAges = function (c) {
+    // debugger;
+    var a = c.split(',');
+    var str = '';
+    //    $id,$min,$defval,$agefrom,$ageto,$agedefault,$ageselect,$useagedefault
+    if (a[6] === "true") {
+        str += '<div>';
+        if (a[2] !== '0') {
+            if (!a[3]) {
+                a[3] = 0;
+            }
+            if (!a[4] || a[4] === "null") {
+                a[4] = 18;
+            } else if (a[4] > 18) {
+                a[4] = 18;
+            }
+            for (x = a[1]; x < a[2]; x++) {
+
+                str += it.bookingexpert.SearchBox.strAgeForReplacer(a[0], a[3], a[4], a[5], a[7]);
+            }
+        }
+        str += '</div>';
+    }
+    return str;
+
+};
+
+// it.bookingexpert.SearchBox.showAges = function (guest, agefrom, ageto, agedefault, ageselect, useagedefault) {
+it.bookingexpert.SearchBox.showAges = function (guest, agefrom, ageto, agedefault, ageUsage) {
+
+    let ageselect = ageUsage.split('_')[0] === 'true';
+    let useagedefault = ageUsage.split('_')[1] === 'true';
+
+    // console.log('ageUsage ' + ageUsage);
+    // console.log('ageselect ' + ageselect);
+    // console.log('useagedefault ' + useagedefault);
+    // let ageselect, useagedefault = ageUsage.split('_')[0];
+
+    // console.log({ arguments })
+    // id, agefrom, ageto, agedefault, ageselect
+    // debugger;
+    if (ageselect) {
+        if (!agefrom) {
+            agefrom = 0;
+        }
+        if (!ageto) {
+            ageto = 18;
+        } else if (ageto > 18) {
+            ageto = 18;
+        }
+        var newone = parseInt(jQuery(guest).val());
+        var oldone = parseInt(it.bookingexpert.SearchBox.gs[jQuery(guest).attr('name')]);
+        if (newone > oldone) {
+            for (x = oldone; x < newone; x++) {
+                var str = it.bookingexpert.SearchBox.strAge(jQuery(guest).attr('guestid'), agefrom, ageto, (useagedefault ? agedefault : -1));
+                jQuery('select[name="guesttypes[0][' + jQuery(guest).attr('guestid') + ']"]').parent('div').children('div').first().append(str);
+            }
+        } else {
+            for (x = oldone; x > newone; x--) {
+                jQuery(guest).parent('div').children('div').first().children("div[name='eta']").last().remove();
+            }
+        }
+        it.bookingexpert.SearchBox.gs[jQuery(guest).attr('name')] = newone;
+
+    }
+};
+
+it.bookingexpert.SearchBox.showGroupAges = function (guest, agefrom, ageto, agedefault, ageselect) {
+    // id, agefrom, ageto, agedefault, ageselect
+    if (ageselect) {
+        if (!agefrom) {
+            agefrom = 0;
+        }
+        if (!ageto) {
+            ageto = 18;
+        } else if (ageto > 18) {
+            ageto = 18;
+        }
+        var newone = jQuery(guest).val();
+        var oldone = it.bookingexpert.SearchBox.gs[jQuery(guest).attr('name')];
+        if (oldone === undefined && newone > 0) {
+            oldone = 0;
+        }
+        if (newone > oldone) {
+            for (x = oldone; x < newone; x++) {
+                var str = it.bookingexpert.SearchBox.strAge(jQuery(guest).attr('guestid'), agefrom, ageto, -1);
+                jQuery('select[name="guesttypesgroups[0][' + jQuery(guest).attr('guestid') + ']"]').parent('div').children('div').first().append(str);
+            }
+        } else {
+            for (x = oldone; x > newone; x--) {
+                jQuery(guest).parent('div').children('div').first().children("div[name='eta']").last().remove();
+            }
+        }
+        it.bookingexpert.SearchBox.gs[jQuery(guest).attr('name')] = newone;
+
+    }
+};
+
+it.bookingexpert.SearchBox.strAgeForReplacer = function (guest, agefrom, ageto, agedefault, useAgeDefault) {
+    // debugger;
+    return it.bookingexpert.SearchBox.strAge(guest, agefrom, ageto, useAgeDefault === 'true' ? agedefault : -1);
+}
+
+it.bookingexpert.SearchBox.strAge = function (guest, agefrom, ageto, agedefault) {
+    var str = '<div name="eta"><label>' + it.bookingexpert.SearchBox.lang.age + '</label>';
+    str += `<select name="ages[0][${guest}]" ${agedefault < 0 ? ' required="required"' : ''}>`;
+    str += (agedefault < 0) ? '<option value=""> - </option>' : '';
+    str += it.bookingexpert.SearchBox.writeOptions('' + agefrom + ',' + ageto + ',' + agedefault);
+    str += '</select></div>';
+    return str;
+};
+
+
+
+// sostituisce blocco per luoghi hotels
+it.bookingexpert.SearchBox.onPlaceChange = function (sender) {
+    if (typeof it.bookingexpert.SearchBox.domain !== 'undefined') {
+        var place = sender.value;
+        jQuery('select[name=hotel]', it.bookingexpert.SearchBox.target).each(function () {
+            this.options.length = 1;
+            for (var i = 0; i < it.bookingexpert.SearchBox.domain.hotels.length; i++) {
+                var h = it.bookingexpert.SearchBox.domain.hotels[i];
+                if (place === '' || place === h.city) {
+                    this.options[this.options.length] = new Option(h.name, h.id);
+                }
+            }
+        });
+    }
+};
+// sostituisce blocco date nel caso sia un ecopmmerce prodotti
+it.bookingexpert.SearchBox.replaceDates = function () {
+    var str = '';
+    if (typeof it.bookingexpert.SearchBox.ecommerce !== 'undefined' && it.bookingexpert.SearchBox.hasDates) {
+        str += '<div><label>';
+        str += it.bookingexpert.SearchBox.lang.checkin;
+        str += '</label><input type="text" name="checkin" value="" /></div>';
+        str += '<div><label>';
+        str += it.bookingexpert.SearchBox.lang.checkout;
+        str += '</label><input type="text" name="checkout" value="" /></div>';
+    }
+    return str;
+};
+it.bookingexpert.SearchBox.replaceServices = function () {
+    var str = '';
+    if (typeof it.bookingexpert.SearchBox.services !== 'undefined') {
+        str += '<div><label>';
+        str += it.bookingexpert.SearchBox.lang.service;
+        str += '</label>';
+        str += '<select name="service">';
+        str += '<option value="">';
+        str += it.bookingexpert.SearchBox.lang.all;
+        str += '</option>';
+        for (var i = 0; i < it.bookingexpert.SearchBox.services.length; i++) {
+            var h = it.bookingexpert.SearchBox.services[i];
+            str += '<option value="';
+            str += h.id;
+            str += '">';
+            str += h.name;
+            str += '</option>';
+        }
+        str += '</select>';
+        str += '</div>';
+    }
+    return str;
+};
+// sostituisce blocco per luoghi hotels
+it.bookingexpert.SearchBox.replacePlaces = function () {
+    var str = '';
+    if (typeof it.bookingexpert.SearchBox.domain !== 'undefined') {
+        var places = {};
+        var sorted = [];
+        for (var i = 0; i < it.bookingexpert.SearchBox.domain.hotels.length; i++) {
+            var h = it.bookingexpert.SearchBox.domain.hotels[i];
+            if (!places[h.city]) {
+                places[h.city] = 1;
+                sorted.push(h.city);
+            }
+        }
+        sorted.sort();
+        str += '<select onchange="it.bookingexpert.SearchBox.onPlaceChange(this)" name="place">';
+        str += '<option value="">';
+        str += it.bookingexpert.SearchBox.lang.allplaces;
+        str += '</option>';
+        for (var i in sorted) {
+            str += '<option>';
+            str += sorted[i];
+            str += '</option>';
+        }
+        str += '</select>';
+    }
+    return str;
+};
+// sostituisce blocco per nomi hotels
+it.bookingexpert.SearchBox.replaceHotels = function () {
+    var str = '';
+    if (typeof it.bookingexpert.SearchBox.domain !== 'undefined') {
+        str += '<select name="hotel">';
+        str += '<option value="">';
+        str += it.bookingexpert.SearchBox.lang.allhotels;
+        str += '</option>';
+        for (var i = 0; i < it.bookingexpert.SearchBox.domain.hotels.length; i++) {
+            var h = it.bookingexpert.SearchBox.domain.hotels[i];
+            str += '<option value="';
+            str += h.id;
+            str += '">';
+            str += h.name;
+            str += '</option>';
+        }
+        str += '</select>';
+    }
+    return str;
+};
+// sostituisce blocco per combiazioni ospiti
+it.bookingexpert.SearchBox.replaceGuests = function (c) {
+    if (!c) {
+        c = '<option value="$id"$favhtml>$description</option>';
+    }
+    return it.bookingexpert.SearchBox.replaceFields(it.bookingexpert.SearchBox.guests, c);
+};
+// sostituisce blocco per tipologie ospiti
+it.bookingexpert.SearchBox.replaceGuesttypes = function (c) {
+    // console.log({ c })
+    if (!c) {
+        // <option>0</option>
+        c = '<div><label>$name</label><select name="guesttypes[0][$id]" guestid="$id"'
+                + ' onchange="it.bookingexpert.SearchBox.showAges(this, $agefrom, $ageto, $agedefault, \'$ageselect_$useagedefault\')">'
+                + '{options:$min,$max,$defval,$id,guest}</select>{ages:$id,$min,$defval,$agefrom,$ageto,$agedefault,$ageselect,$useagedefault}</div>';
+    }
+    return it.bookingexpert.SearchBox.replaceFields(it.bookingexpert.SearchBox.guesttypes, c);
+};
+// sostituisce blocco per tipologie ospiti (gruppi)
+it.bookingexpert.SearchBox.replaceGuesttypesGroups = function (c) {
+    if (!c) {
+        // <option>0</option>
+        c = '<div><label>$name</label><select name="guesttypesgroups[0][$id]" guestid="$id"'
+                + ' onchange="it.bookingexpert.SearchBox.showGroupAges(this, $agefrom, $ageto, $agedefault, $ageselect)">'
+                + '{options:$min,$max,$defval,$id,guest}</select>{ages:$id,$min,$defval,$agefrom,$ageto,$agedefault,$ageselect,-1}</div>';
+    }
+    return it.bookingexpert.SearchBox.replaceFields(it.bookingexpert.SearchBox.guesttypesgroups, c);
+};
+// sostituisce blocco per coupon
+it.bookingexpert.SearchBox.replaceCoupon = function (c) {
+    var str = '<div><label>';
+    str += it.bookingexpert.SearchBox.lang.coupon;
+    str += '</label><input type="text" name="coupon" /></div>';
+    return str;
+};
+// sostituisce blocco per agenzie
+it.bookingexpert.SearchBox.replaceAgencies = function (c) {
+    var str = '<div><label>';
+    str += it.bookingexpert.SearchBox.lang.agencycode;
+    str += '</label><input type="text" name="agencycode" /></div>';
+    return str;
+};
+// sostituisce blocco per tag/zone (collections)
+it.bookingexpert.SearchBox.replaceCollections = function () {
+    var str = '<div><label>';
+    str += it.bookingexpert.SearchBox.lang.collections;
+    str += '</label>';
+    if (typeof it.bookingexpert.SearchBox.domain !== 'undefined') {
+        str += '<ul>';
+        for (var i = 0; i < it.bookingexpert.SearchBox.collections.length; i++) {
+            var h = it.bookingexpert.SearchBox.collections[i];
+            str += '<li><input type="checkbox" name="collections[]" class="checkbox" value="';
+            str += h.id;
+            str += '" />';
+            str += h.title;
+            str += '</li>';
+        }
+        str += '</ul>';
+    }
+    str += '</div>';
+    return str;
+};
+// sostituisce i segnaposti con i rispettivi valori
+it.bookingexpert.SearchBox.replaceFields = function (a, c) {
+    // debugger;
+    var fieldexp = /\$([a-z]+)/g;
+    var str = '';
+    if (a) {
+        for (var x = 0; x < a.length; x++) {
+            str += c.replace(fieldexp, function () {
+                return a[x][arguments[1]];
+            });
+        }
+    }
+    return str;
+};
+
+it.bookingexpert.SearchBox.onCategoryChange = function (sender) {
+    var category = sender.value;
+    jQuery('select[name=service]', it.bookingexpert.SearchBox.target).each(function () {
+        for (var i = 0; i < this.options.length; i++) {
+            this.options[i] = null;
+        }
+        this.options[0] = new Option('', '');
+        var j = 1;
+        for (i = 0; i < it.bookingexpert.SearchBox.services.length; i++) {
+            if (it.bookingexpert.SearchBox.services[i].category == category || category == '') {
+                this.options[j++] = new Option(it.bookingexpert.SearchBox.services[i].name, it.bookingexpert.SearchBox.services[i].id);
+            }
+        }
+        this.options.length = j;
+    });
+};
+
+// sostituisce blocco per servizi ecommerce
+it.bookingexpert.SearchBox.replaceCategories = function () {
+    var str = '';
+    if (typeof it.bookingexpert.SearchBox.categories !== 'undefined') {
+        str += '<div><label>';
+        str += it.bookingexpert.SearchBox.lang.category;
+        str += '</label>';
+        str += '<select name="category" onchange="it.bookingexpert.SearchBox.onCategoryChange(this)">';
+        str += '<option value="">';
+        str += it.bookingexpert.SearchBox.lang.all;
+        str += '</option>';
+        for (var i = 0; i < it.bookingexpert.SearchBox.categories.length; i++) {
+            var h = it.bookingexpert.SearchBox.categories[i];
+            str += '<option value="';
+            str += h.id;
+            str += '">';
+            str += h.name;
+            str += '</option>';
+        }
+        str += '</select>';
+        str += '</div>';
+    }
+    return str;
+};
+// codice html per la generazione del form default
+it.bookingexpert.SearchBox.replaceSimpleForm = function () {
+    var str = '<form target="_blank" action="';
+    str += it.bookingexpert.SearchBox.url;
+    str += it.bookingexpert.SearchBox.contextPath;
+    str += it.bookingexpert.SearchBox.action;
+    str += '" method="post">';
+    str += '{fieldset:nights}</form>';
+    return str;
+};
+// campi hidden
+it.bookingexpert.SearchBox.replaceHidden = function () {
+    var str = '';
+    if (typeof it.bookingexpert.SearchBox.domain !== 'undefined') {
+        str += '<input type="hidden" name="domain" value="';
+        str += it.bookingexpert.SearchBox.domain.id;
+        str += '" />';
+    } else {
+        str += '<input type="hidden" name="hotel" value="';
+        str += it.bookingexpert.SearchBox.hotel;
+        str += '" />';
+    }
+    str += '<input type="hidden" name="lang" value="';
+    str += it.bookingexpert.SearchBox.lang.code;
+    str += '" />';
+
+    str += '<input type="hidden" name="bbtmSearchbar" id="bbtmSearchbar" value="" />';
+
+    if (typeof it.bookingexpert.SearchBox.ecommerce !== 'undefined') {
+        str += '<input type="hidden" name="ecommerce" value="';
+        str += it.bookingexpert.SearchBox.ecommerce;
+        str += '" />';
+    }
+    return str;
+};
+// codice html per la generazione dei campi della form
+it.bookingexpert.SearchBox.replaceFieldset = function (b) {
+    var str = '{hidden}';
+    if (typeof it.bookingexpert.SearchBox.ecommerce === 'undefined' || it.bookingexpert.SearchBox.hasDates) {
+        str += '<div><label>';
+        str += it.bookingexpert.SearchBox.lang.checkin;
+        str += '</label><input type="text" name="checkin" value="';
+        if (it.bookingexpert.SearchBox.layout.checkin) {
+            str += it.bookingexpert.SearchBox.layout.checkin;
+        }
+        str += '" /></div><div><label>';
+        if (b === 'nights') {
+            str += it.bookingexpert.SearchBox.lang.nights;
+            str += '</label><select name="nights">{options:1,10,';
+            str += it.bookingexpert.SearchBox.layout.nights;
+            str += '}</select>';
+        } else if (b === 'checkout') {
+            str += it.bookingexpert.SearchBox.lang.checkout;
+            str += '</label><input type="text" name="checkout" value="" />';
+        }
+        str += '</div>';
+    }
+    str += '<div><label>';
+    str += it.bookingexpert.SearchBox.lang.guests;
+    str += '</label><select name="guests[]">{guests}</select></div><div>';
+    str += '<input type="submit" name="search" value="';
+    str += it.bookingexpert.SearchBox.lang.search;
+    str += '" /></div><a href="http://www.bookingexpert.it" target="_blank"><img src="';
+    str += it.bookingexpert.SearchBox.url;
+    str += '/resources/images/searchboxpowered.png" alt="" /><span>';
+    str += it.bookingexpert.SearchBox.lang.ssl;
+    str += '</span></a>';
+    return str;
+};
+// include il file javascript esterno ed esegue la funzione callback appena pronto
+it.bookingexpert.SearchBox.include = function (src, callback) {
+    if (src instanceof Array) {
+        var tail = src;
+        src = tail.shift();
+        if (tail.length > 0) {
+            var prevcallback = callback;
+            callback = function () {
+                it.bookingexpert.SearchBox.include(tail, prevcallback);
+            };
+        }
+    }
+    var script = document.createElement('script');
+    script.setAttribute('type', 'text/javascript');
+    if (callback) {
+        if (script.readyState) {
+            // IE
+            script.onreadystatechange = function () {
+                if (script.readyState === "loaded" || script.readyState === "complete") {
+                    script.onreadystatechange = null;
+                    callback();
+                }
+            };
+        } else {
+            // Others
+            script.onload = callback;
+        }
+    }
+    script.src = src;
+    document.getElementsByTagName("head")[0].appendChild(script);
+};
+// apre una finestra modale per la destinazione del post di una form
+it.bookingexpert.SearchBox.modal = function () {
+    var iframe = document.getElementsByName(this.target);
+    if (iframe.length === 0) {
+        // crea il frame interno
+        iframe = document.createElement('iframe');
+        iframe.setAttribute('name', this.target);
+        iframe.className = this.target;
+        // div container (padding)
+        var container = document.createElement('div');
+        container.className = this.target + 'container';
+        container.appendChild(iframe);
+        // div background (opacity)
+        var background = document.createElement('div');
+        background.className = this.target + 'background';
+        background.appendChild(container);
+        background.onclick = function () {
+            this.parentNode.removeChild(this);
+        };
+        document.body.appendChild(background);
+    }
+};
+// formatta una data in stringa
+it.bookingexpert.SearchBox.dateToString = function (s, v) {
+    if (!s)
+        s = 'd/m/Y';
+    if (!v)
+        v = new Date();
+    var x = {
+        d: v.getDate(),
+        m: v.getMonth(),
+        Y: v.getFullYear()
+    };
+    if (x.d < 10)
+        x.d = '0' + x.d;
+    if (x.m < 10)
+        x.m = '0' + x.m;
+    return s.replace(/[Ymd]/g, function () {
+        return x[arguments[0]];
+    });
+};
+// trasforma una casella input in un selettore di date
+it.bookingexpert.SearchBox.datepicker = function (a) {
+    a.setAttribute('type', 'hidden');
+    var selday = document.createElement('select');
+    var selmonth = document.createElement('select');
+    var selyear = document.createElement('select');
+    var now = new Date();
+    for (var i = 1; i <= 31; i++)
+        selday.options[selday.options.length] = new Option(i < 10 ? '0' + i : i);
+    for (var i = 1; i <= 12; i++)
+        selmonth.options[selmonth.options.length] = new Option(it.bookingexpert.SearchBox.lang['month' + i], i < 10 ? '0' + i : i);
+    for (var i = now.getFullYear(); i <= now.getFullYear() + 2; i++)
+        selyear.options[selyear.options.length] = new Option(i, i);
+    selday.selectedIndex = now.getDate() - 1;
+    selmonth.selectedIndex = now.getMonth();
+    selyear.selectedIndex = 0;
+    selday.onchange = selmonth.onchange = selyear.onchange = function () {
+        a.value = selyear.value + '/' + selmonth.value + '/' + selday.value;
+    };
+    a.value = selyear.value + '/' + selmonth.value + '/' + selday.value;
+    a.parentNode.insertBefore(selday, a);
+    a.parentNode.insertBefore(selmonth, a);
+    a.parentNode.insertBefore(selyear, a);
+};
+// carica il widget per la struttura selezionata
+it.bookingexpert.SearchBox.loadHotel = function (id, target, code) {
+    if (id > 0) {
+        var u = it.bookingexpert.SearchBox.url;
+        u += it.bookingexpert.SearchBox.contextPath;
+        if (typeof it.bookingexpert.SearchBox.ecommerce === 'undefined') {
+            u += "/websites/searchbox?static=false&hotel=";
+        } else {
+            u += "/websites/servicebox?static=false&hotel=";
+        }
+        u += id;
+        u += "&lang=";
+        u += it.bookingexpert.SearchBox.lang.code;
+        if (target && code) {
+            u += "&target=";
+            u += target;
+            u += "&code=";
+            u += code;
+        }
+        var scriptid = 'besearchboxhoteldyn';
+        var script = document.getElementById(scriptid);
+        if (script)
+            script.parentNode.removeChild(script);
+        script = document.createElement('script');
+        script.src = u;
+        script.id = scriptid;
+        document.body.appendChild(script);
+    }
+};
+// seleziona uno degli hotel nel dominio
+it.bookingexpert.SearchBox.selectDomainHotel = function (id) {
+    if (typeof it.bookingexpert.SearchBox.domain !== 'undefined') {
+        jQuery('select[name=hotel]', it.bookingexpert.SearchBox.target).val(id);
+        for (var i = 0; i < it.bookingexpert.SearchBox.domain.hotels.length; i++) {
+            var h = it.bookingexpert.SearchBox.domain.hotels[i];
+            if (id === h.id) {
+                jQuery('select[name=place]', it.bookingexpert.SearchBox.target).val(h.city);
+            }
+        }
+    }
+};
+// trasforma una casella input in un selettore di date
+it.bookingexpert.SearchBox.getCheckout = function () {
+    var d = new Date(it.bookingexpert.SearchBox.layout.checkin);
+    d.setDate(d.getDate() + it.bookingexpert.SearchBox.layout.nights);
+    return d;
+};
+
+it.bookingexpert.SearchBox.isMobile = function () {
+    var check = false;
+    (function (a) {
+        if (/(android|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|iris|kindle|lge |maemo|midp|mmp|mobile.+firefox|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\/|plucker|pocket|psp|series(4|6)0|symbian|treo|up\.(browser|link)|vodafone|wap|windows ce|xda|xiino|android|ipad|playbook|silk/i.test(a) || /1207|6310|6590|3gso|4thp|50[1-6]i|770s|802s|a wa|abac|ac(er|oo|s\-)|ai(ko|rn)|al(av|ca|co)|amoi|an(ex|ny|yw)|aptu|ar(ch|go)|as(te|us)|attw|au(di|\-m|r |s )|avan|be(ck|ll|nq)|bi(lb|rd)|bl(ac|az)|br(e|v)w|bumb|bw\-(n|u)|c55\/|capi|ccwa|cdm\-|cell|chtm|cldc|cmd\-|co(mp|nd)|craw|da(it|ll|ng)|dbte|dc\-s|devi|dica|dmob|do(c|p)o|ds(12|\-d)|el(49|ai)|em(l2|ul)|er(ic|k0)|esl8|ez([4-7]0|os|wa|ze)|fetc|fly(\-|_)|g1 u|g560|gene|gf\-5|g\-mo|go(\.w|od)|gr(ad|un)|haie|hcit|hd\-(m|p|t)|hei\-|hi(pt|ta)|hp( i|ip)|hs\-c|ht(c(\-| |_|a|g|p|s|t)|tp)|hu(aw|tc)|i\-(20|go|ma)|i230|iac( |\-|\/)|ibro|idea|ig01|ikom|im1k|inno|ipaq|iris|ja(t|v)a|jbro|jemu|jigs|kddi|keji|kgt( |\/)|klon|kpt |kwc\-|kyo(c|k)|le(no|xi)|lg( g|\/(k|l|u)|50|54|\-[a-w])|libw|lynx|m1\-w|m3ga|m50\/|ma(te|ui|xo)|mc(01|21|ca)|m\-cr|me(rc|ri)|mi(o8|oa|ts)|mmef|mo(01|02|bi|de|do|t(\-| |o|v)|zz)|mt(50|p1|v )|mwbp|mywa|n10[0-2]|n20[2-3]|n30(0|2)|n50(0|2|5)|n7(0(0|1)|10)|ne((c|m)\-|on|tf|wf|wg|wt)|nok(6|i)|nzph|o2im|op(ti|wv)|oran|owg1|p800|pan(a|d|t)|pdxg|pg(13|\-([1-8]|c))|phil|pire|pl(ay|uc)|pn\-2|po(ck|rt|se)|prox|psio|pt\-g|qa\-a|qc(07|12|21|32|60|\-[2-7]|i\-)|qtek|r380|r600|raks|rim9|ro(ve|zo)|s55\/|sa(ge|ma|mm|ms|ny|va)|sc(01|h\-|oo|p\-)|sdk\/|se(c(\-|0|1)|47|mc|nd|ri)|sgh\-|shar|sie(\-|m)|sk\-0|sl(45|id)|sm(al|ar|b3|it|t5)|so(ft|ny)|sp(01|h\-|v\-|v )|sy(01|mb)|t2(18|50)|t6(00|10|18)|ta(gt|lk)|tcl\-|tdg\-|tel(i|m)|tim\-|t\-mo|to(pl|sh)|ts(70|m\-|m3|m5)|tx\-9|up(\.b|g1|si)|utst|v400|v750|veri|vi(rg|te)|vk(40|5[0-3]|\-v)|vm40|voda|vulc|vx(52|53|60|61|70|80|81|83|85|98)|w3c(\-| )|webc|whit|wi(g |nc|nw)|wmlb|wonu|x700|yas\-|your|zeto|zte\-/i.test(a.substr(0, 4)))
+            check = true;
+    })(navigator.userAgent || navigator.vendor || window.opera);
+    return check;
+};
+
+it.bookingexpert.SearchBox.bookingBooster = function (target) {
+    const booster = `
+        import { BBTM } from "https://cdn.bookingbooster.it/bbtm/0.8.X/vendor.js";
+        const bbtm = new BBTM();
+        initializeBookingBooster();
+
+        async function initializeBookingBooster() {
+            console.log("BOOSTER: initializeBookingBooster()");
+            await bbtm.init()
+                .then((session) => {
+                    console.log("BOOSTER: then", session);
+                    $("#bbtmSearchbar").val(bbtm.getSessionToken()?.toString());
+                })
+                .catch((error) => {
+                    console.error("BOOSTER: catch", error);
+                });
+        }
+    `;
+
+    const script = document.createElement("script");
+    script.setAttribute("type", "module");
+    script.text = booster;
+
+    target.appendChild(script);
+};it.bookingexpert.SearchBox.lang = {"code":"it","ssl":"Informazioni protette con certificato SSL a 256 bit","search":"Ricerca","checkin":"Arrivo","month12":"Dic","month11":"Nov","collections":"Tag\/Zone","agencycode":"Agenzie\/Aziende\/TO","checkout":"Partenza","all":"","month1":"Gen","allplaces":"Tutte le localit\u00E0","month2":"Feb","month3":"Mar","month4":"Apr","coupon":"Coupon","month5":"Mag","month6":"Giu","month7":"Lug","month8":"Ago","month9":"Set","month10":"Ott","nights":"Notti","service":"Servizio aggiuntivo","guests":"Ospiti","allhotels":"Tutte le strutture","category":"Categoria","age":"Et\u00E0 (anni)"};it.bookingexpert.SearchBox.action = "\/simple\/step1";it.bookingexpert.SearchBox.url = "https:\/\/booking.valturcristallo.com";it.bookingexpert.SearchBox.contextPath = "\/book";it.bookingexpert.SearchBox.html = [{"code":"Offers","html":"{offers}\n    <a href=\"{url}\">\n        <div class=\"offerTitle\">{name}<\/div>\n        <img src=\"{image.thumb}\" alt=\"{name}\"\/>\n\t<div class=\"offerDesc\">{description}<\/div>\n        <div class=\"offerPrice\">A partire da <span>{pricefrom}<\/span><\/div>\n        <div class=\"offerBtn\">Prenota<\/div>\n    <\/a>\n{\/offers}"},{"code":"Default","html":"<h4 class=\"searchboxTitle\">Prenota Online<\/h4>\n<form action=\"https:\/\/booking.valturcristallo.com\/book\/simple\/step1\">\n    {hidden}\n    <div><label>Arrivo<\/label><input type=\"text\" name=\"checkin\" value=\"\" \/><\/div>\n    <div><label>Partenza<\/label><input type=\"text\" name=\"checkout\" value=\"\" \/><\/div>\n    {guesttypes}\n    <input type=\"submit\" name=\"search\" value=\"Prenota\" \/>\n<\/form>\n<a class=\"searchboxAdd\" href=\"https:\/\/booking.valturcristallo.com\/book\/simple\/step1?hotel=45330&amp;lang=it\">Aggiungi Camere<\/a>\n<a class=\"searchboxArea\" href=\"https:\/\/booking.valturcristallo.com\/book\/home\/customer?hotel=45330&amp;lang=it\">Modifica Prenotazioni<\/a>\n<a class=\"searchboxCredits\" href=\"http:\/\/www.bookingexpert.it\" target=\"_blank\">\n    <img src=\"https:\/\/be.bookingexpert.it\/resources\/images\/searchboxpowered.png\"\/>\n<\/a>\n<script type=\"text\/javascript\">   \n    \/\/ impostazioni globali datepicker\n    var dplang = $.datepicker.regional[\"it\"];\n    var dpopts = {\n        dateFormat:'dd-mm-yy',\n        changeMonth:true,\n        changeYear:true,\n        showButtonPanel:true,\n        minDate:new Date(),\n        beforeShowDay: function(date){\n            var dateMin = checkin.datepicker(\"getDate\");\n            var dateMax = checkout.datepicker(\"getDate\");\n            return [true, date >= dateMin && date <= dateMax ? 'date-range-selected' : ''];\n        }\n    };\n    \/\/ inizializza data arrivo e partenza\n    var checkin = $(\"#searchbox input[name=checkin]\");\n    var checkout = $(\"#searchbox input[name=checkout]\");    \n    checkin.datepicker(dpopts, dplang);    \n    checkout.datepicker(dpopts, dplang);    \n    checkin.datepicker('option', 'onSelect', function() {\n        var dateMin = checkin.datepicker(\"getDate\");\n        var rMin = new Date(dateMin.getFullYear(), dateMin.getMonth(),dateMin.getDate() + 1); \n        checkout.datepicker(\"option\", \"minDate\", rMin);    \n    });   \n    \/\/ imposta i valori predefiniti\n    checkin.datepicker('setDate', new Date(it.bookingexpert.SearchBox.layout.checkin));\n    checkout.datepicker('setDate', it.bookingexpert.SearchBox.getCheckout());\n    $('#ui-datepicker-div').hide();\n    if (it.bookingexpert.SearchBox.isMobile()) {\n        function changeCheckOut() {\n                if (new Date(checkin.val()) >= new Date(this.value)) {\n                        var c = new Date(checkin.val());\n                        c.setDate(c.getDate() + 1);\n                        this.value = c.toISOString().substring(0, 10);\n                }\n        }\n\n        checkin.attr('type', 'date').datepicker('destroy').val(new Date(it.bookingexpert.SearchBox.layout.checkin).toISOString().substring(0, 10));\n        checkout.attr('type', 'date').datepicker('destroy').val(it.bookingexpert.SearchBox.getCheckout().toISOString().substring(0, 10));\n        checkin.change(function () {\n                if (new Date(this.value) < new Date()) {\n                        this.value = new Date().toISOString().substring(0, 10);\n                }\n        });\n        checkout.change(changeCheckOut).focus(changeCheckOut);\n    }\n<\/script>"}];it.bookingexpert.SearchBox.hotel = "45330";it.bookingexpert.SearchBox.layout = {"id":17137,"nights":1,"checkin":"2025-04-22"};it.bookingexpert.SearchBox.guests = [{"id":312977,"favorite":false,"description":"3 Adulti + 1 Bambino (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312978,"favorite":false,"description":"4 Adulti + 1 Bambino (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312979,"favorite":false,"description":"5 Adulti + 1 Bambino (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312980,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 1 Bambino (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312973,"favorite":false,"description":"2 Adulti + 4 Bambini (12-17) + 1 Neonato (0-2)","favhtml":""},{"id":312974,"favorite":false,"description":"1 Adulto + 5 Bambini (12-17) + 1 Neonato (0-2)","favhtml":""},{"id":312975,"favorite":false,"description":"1 Adulto + 1 Bambino (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312976,"favorite":false,"description":"2 Adulti + 1 Bambino (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312985,"favorite":false,"description":"2 Adulti + 2 Bambini (12-17) + 1 Bambino (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312986,"favorite":false,"description":"3 Adulti + 2 Bambini (12-17) + 1 Bambino (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312987,"favorite":false,"description":"1 Adulto + 3 Bambini (12-17) + 1 Bambino (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312988,"favorite":false,"description":"2 Adulti + 3 Bambini (12-17) + 1 Bambino (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312981,"favorite":false,"description":"2 Adulti + 1 Bambino (12-17) + 1 Bambino (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312982,"favorite":false,"description":"3 Adulti + 1 Bambino (12-17) + 1 Bambino (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312983,"favorite":false,"description":"4 Adulti + 1 Bambino (12-17) + 1 Bambino (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312984,"favorite":false,"description":"1 Adulto + 2 Bambini (12-17) + 1 Bambino (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312993,"favorite":false,"description":"4 Adulti + 2 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312994,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 2 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312995,"favorite":false,"description":"2 Adulti + 1 Bambino (12-17) + 2 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312996,"favorite":false,"description":"3 Adulti + 1 Bambino (12-17) + 2 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312989,"favorite":false,"description":"1 Adulto + 4 Bambini (12-17) + 1 Bambino (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312990,"favorite":false,"description":"1 Adulto + 2 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312991,"favorite":false,"description":"2 Adulti + 2 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312992,"favorite":false,"description":"3 Adulti + 2 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":313001,"favorite":false,"description":"2 Adulti + 3 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":313002,"favorite":false,"description":"3 Adulti + 3 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":313003,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 3 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":313004,"favorite":false,"description":"2 Adulti + 1 Bambino (12-17) + 3 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312997,"favorite":false,"description":"1 Adulto + 2 Bambini (12-17) + 2 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312998,"favorite":false,"description":"2 Adulti + 2 Bambini (12-17) + 2 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":312999,"favorite":false,"description":"1 Adulto + 3 Bambini (12-17) + 2 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":313000,"favorite":false,"description":"1 Adulto + 3 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":313009,"favorite":false,"description":"1 Adulto + 5 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":313010,"favorite":false,"description":"1 Adulto + 2 Neonati (0-2)","favhtml":""},{"id":313011,"favorite":false,"description":"2 Adulti + 2 Neonati (0-2)","favhtml":""},{"id":313012,"favorite":false,"description":"3 Adulti + 2 Neonati (0-2)","favhtml":""},{"id":313005,"favorite":false,"description":"1 Adulto + 2 Bambini (12-17) + 3 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":313006,"favorite":false,"description":"1 Adulto + 4 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":313007,"favorite":false,"description":"2 Adulti + 4 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":313008,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 4 Bambini (3-11) + 1 Neonato (0-2)","favhtml":""},{"id":313017,"favorite":false,"description":"3 Adulti + 1 Bambino (12-17) + 2 Neonati (0-2)","favhtml":""},{"id":313018,"favorite":false,"description":"4 Adulti + 1 Bambino (12-17) + 2 Neonati (0-2)","favhtml":""},{"id":313019,"favorite":false,"description":"1 Adulto + 2 Bambini (12-17) + 2 Neonati (0-2)","favhtml":""},{"id":313020,"favorite":false,"description":"2 Adulti + 2 Bambini (12-17) + 2 Neonati (0-2)","favhtml":""},{"id":313013,"favorite":false,"description":"4 Adulti + 2 Neonati (0-2)","favhtml":""},{"id":313014,"favorite":false,"description":"5 Adulti + 2 Neonati (0-2)","favhtml":""},{"id":313015,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 2 Neonati (0-2)","favhtml":""},{"id":313016,"favorite":false,"description":"2 Adulti + 1 Bambino (12-17) + 2 Neonati (0-2)","favhtml":""},{"id":313025,"favorite":false,"description":"1 Adulto + 1 Bambino (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313026,"favorite":false,"description":"2 Adulti + 1 Bambino (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313027,"favorite":false,"description":"3 Adulti + 1 Bambino (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313028,"favorite":false,"description":"4 Adulti + 1 Bambino (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313021,"favorite":false,"description":"3 Adulti + 2 Bambini (12-17) + 2 Neonati (0-2)","favhtml":""},{"id":313022,"favorite":false,"description":"1 Adulto + 3 Bambini (12-17) + 2 Neonati (0-2)","favhtml":""},{"id":313023,"favorite":false,"description":"2 Adulti + 3 Bambini (12-17) + 2 Neonati (0-2)","favhtml":""},{"id":313024,"favorite":false,"description":"1 Adulto + 4 Bambini (12-17) + 2 Neonati (0-2)","favhtml":""},{"id":313033,"favorite":false,"description":"2 Adulti + 2 Bambini (12-17) + 1 Bambino (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313034,"favorite":false,"description":"1 Adulto + 3 Bambini (12-17) + 1 Bambino (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313035,"favorite":false,"description":"1 Adulto + 2 Bambini (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313036,"favorite":false,"description":"2 Adulti + 2 Bambini (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313029,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 1 Bambino (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313030,"favorite":false,"description":"2 Adulti + 1 Bambino (12-17) + 1 Bambino (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313031,"favorite":false,"description":"3 Adulti + 1 Bambino (12-17) + 1 Bambino (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313032,"favorite":false,"description":"1 Adulto + 2 Bambini (12-17) + 1 Bambino (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313041,"favorite":false,"description":"1 Adulto + 3 Bambini (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313042,"favorite":false,"description":"2 Adulti + 3 Bambini (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313043,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 3 Bambini (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313044,"favorite":false,"description":"1 Adulto + 4 Bambini (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313037,"favorite":false,"description":"3 Adulti + 2 Bambini (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313038,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 2 Bambini (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313039,"favorite":false,"description":"2 Adulti + 1 Bambino (12-17) + 2 Bambini (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313040,"favorite":false,"description":"1 Adulto + 2 Bambini (12-17) + 2 Bambini (3-11) + 2 Neonati (0-2)","favhtml":""},{"id":313049,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 3 Neonati (0-2)","favhtml":""},{"id":313050,"favorite":false,"description":"2 Adulti + 1 Bambino (12-17) + 3 Neonati (0-2)","favhtml":""},{"id":313051,"favorite":false,"description":"3 Adulti + 1 Bambino (12-17) + 3 Neonati (0-2)","favhtml":""},{"id":313052,"favorite":false,"description":"1 Adulto + 2 Bambini (12-17) + 3 Neonati (0-2)","favhtml":""},{"id":313045,"favorite":false,"description":"1 Adulto + 3 Neonati (0-2)","favhtml":""},{"id":313046,"favorite":false,"description":"2 Adulti + 3 Neonati (0-2)","favhtml":""},{"id":313047,"favorite":false,"description":"3 Adulti + 3 Neonati (0-2)","favhtml":""},{"id":313048,"favorite":false,"description":"4 Adulti + 3 Neonati (0-2)","favhtml":""},{"id":313057,"favorite":false,"description":"3 Adulti + 1 Bambino (3-11) + 3 Neonati (0-2)","favhtml":""},{"id":313058,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 1 Bambino (3-11) + 3 Neonati (0-2)","favhtml":""},{"id":313059,"favorite":false,"description":"2 Adulti + 1 Bambino (12-17) + 1 Bambino (3-11) + 3 Neonati (0-2)","favhtml":""},{"id":313060,"favorite":false,"description":"1 Adulto + 2 Bambini (12-17) + 1 Bambino (3-11) + 3 Neonati (0-2)","favhtml":""},{"id":313053,"favorite":false,"description":"2 Adulti + 2 Bambini (12-17) + 3 Neonati (0-2)","favhtml":""},{"id":313054,"favorite":false,"description":"1 Adulto + 3 Bambini (12-17) + 3 Neonati (0-2)","favhtml":""},{"id":313055,"favorite":false,"description":"1 Adulto + 1 Bambino (3-11) + 3 Neonati (0-2)","favhtml":""},{"id":313056,"favorite":false,"description":"2 Adulti + 1 Bambino (3-11) + 3 Neonati (0-2)","favhtml":""},{"id":313065,"favorite":false,"description":"1 Adulto + 4 Neonati (0-2)","favhtml":""},{"id":313066,"favorite":false,"description":"2 Adulti + 4 Neonati (0-2)","favhtml":""},{"id":313067,"favorite":false,"description":"3 Adulti + 4 Neonati (0-2)","favhtml":""},{"id":313068,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 4 Neonati (0-2)","favhtml":""},{"id":313061,"favorite":false,"description":"1 Adulto + 2 Bambini (3-11) + 3 Neonati (0-2)","favhtml":""},{"id":313062,"favorite":false,"description":"2 Adulti + 2 Bambini (3-11) + 3 Neonati (0-2)","favhtml":""},{"id":313063,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 2 Bambini (3-11) + 3 Neonati (0-2)","favhtml":""},{"id":313064,"favorite":false,"description":"1 Adulto + 3 Bambini (3-11) + 3 Neonati (0-2)","favhtml":""},{"id":313073,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 1 Bambino (3-11) + 4 Neonati (0-2)","favhtml":""},{"id":313074,"favorite":false,"description":"1 Adulto + 2 Bambini (3-11) + 4 Neonati (0-2)","favhtml":""},{"id":313075,"favorite":false,"description":"1 Adulto + 5 Neonati (0-2)","favhtml":""},{"id":313076,"favorite":false,"description":"2 Adulti + 5 Neonati (0-2)","favhtml":""},{"id":313069,"favorite":false,"description":"2 Adulti + 1 Bambino (12-17) + 4 Neonati (0-2)","favhtml":""},{"id":313070,"favorite":false,"description":"1 Adulto + 2 Bambini (12-17) + 4 Neonati (0-2)","favhtml":""},{"id":313071,"favorite":false,"description":"1 Adulto + 1 Bambino (3-11) + 4 Neonati (0-2)","favhtml":""},{"id":313072,"favorite":false,"description":"2 Adulti + 1 Bambino (3-11) + 4 Neonati (0-2)","favhtml":""},{"id":313077,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 5 Neonati (0-2)","favhtml":""},{"id":313078,"favorite":false,"description":"1 Adulto + 1 Bambino (3-11) + 5 Neonati (0-2)","favhtml":""},{"id":313079,"favorite":false,"description":"1 Adulto + 6 Neonati (0-2)","favhtml":""},{"id":312873,"favorite":false,"description":"4 Adulti","favhtml":""},{"id":312874,"favorite":false,"description":"5 Adulti","favhtml":""},{"id":312875,"favorite":false,"description":"6 Adulti","favhtml":""},{"id":312876,"favorite":false,"description":"7 Adulti","favhtml":""},{"id":312870,"favorite":false,"description":"1 Adulto","favhtml":""},{"id":312871,"favorite":true,"description":"2 Adulti","favhtml":" selected=\"selected\""},{"id":312872,"favorite":false,"description":"3 Adulti","favhtml":""},{"id":312881,"favorite":false,"description":"5 Adulti + 1 Bambino (12-17)","favhtml":""},{"id":312882,"favorite":false,"description":"6 Adulti + 1 Bambino (12-17)","favhtml":""},{"id":312883,"favorite":false,"description":"1 Adulto + 2 Bambini (12-17)","favhtml":""},{"id":312884,"favorite":false,"description":"2 Adulti + 2 Bambini (12-17)","favhtml":""},{"id":312877,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17)","favhtml":""},{"id":312878,"favorite":false,"description":"2 Adulti + 1 Bambino (12-17)","favhtml":""},{"id":312879,"favorite":false,"description":"3 Adulti + 1 Bambino (12-17)","favhtml":""},{"id":312880,"favorite":false,"description":"4 Adulti + 1 Bambino (12-17)","favhtml":""},{"id":312889,"favorite":false,"description":"2 Adulti + 3 Bambini (12-17)","favhtml":""},{"id":312890,"favorite":false,"description":"3 Adulti + 3 Bambini (12-17)","favhtml":""},{"id":312891,"favorite":false,"description":"4 Adulti + 3 Bambini (12-17)","favhtml":""},{"id":312892,"favorite":false,"description":"1 Adulto + 4 Bambini (12-17)","favhtml":""},{"id":312885,"favorite":false,"description":"3 Adulti + 2 Bambini (12-17)","favhtml":""},{"id":312886,"favorite":false,"description":"4 Adulti + 2 Bambini (12-17)","favhtml":""},{"id":312887,"favorite":false,"description":"5 Adulti + 2 Bambini (12-17)","favhtml":""},{"id":312888,"favorite":false,"description":"1 Adulto + 3 Bambini (12-17)","favhtml":""},{"id":312897,"favorite":false,"description":"1 Adulto + 6 Bambini (12-17)","favhtml":""},{"id":312898,"favorite":false,"description":"1 Adulto + 1 Bambino (3-11)","favhtml":""},{"id":312899,"favorite":false,"description":"2 Adulti + 1 Bambino (3-11)","favhtml":""},{"id":312900,"favorite":false,"description":"3 Adulti + 1 Bambino (3-11)","favhtml":""},{"id":312893,"favorite":false,"description":"2 Adulti + 4 Bambini (12-17)","favhtml":""},{"id":312894,"favorite":false,"description":"3 Adulti + 4 Bambini (12-17)","favhtml":""},{"id":312895,"favorite":false,"description":"1 Adulto + 5 Bambini (12-17)","favhtml":""},{"id":312896,"favorite":false,"description":"2 Adulti + 5 Bambini (12-17)","favhtml":""},{"id":312905,"favorite":false,"description":"2 Adulti + 1 Bambino (12-17) + 1 Bambino (3-11)","favhtml":""},{"id":312906,"favorite":false,"description":"3 Adulti + 1 Bambino (12-17) + 1 Bambino (3-11)","favhtml":""},{"id":312907,"favorite":false,"description":"4 Adulti + 1 Bambino (12-17) + 1 Bambino (3-11)","favhtml":""},{"id":312908,"favorite":false,"description":"5 Adulti + 1 Bambino (12-17) + 1 Bambino (3-11)","favhtml":""},{"id":312901,"favorite":false,"description":"4 Adulti + 1 Bambino (3-11)","favhtml":""},{"id":312902,"favorite":false,"description":"5 Adulti + 1 Bambino (3-11)","favhtml":""},{"id":312903,"favorite":false,"description":"6 Adulti + 1 Bambino (3-11)","favhtml":""},{"id":312904,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 1 Bambino (3-11)","favhtml":""},{"id":312913,"favorite":false,"description":"1 Adulto + 3 Bambini (12-17) + 1 Bambino (3-11)","favhtml":""},{"id":312914,"favorite":false,"description":"2 Adulti + 3 Bambini (12-17) + 1 Bambino (3-11)","favhtml":""},{"id":312915,"favorite":false,"description":"3 Adulti + 3 Bambini (12-17) + 1 Bambino (3-11)","favhtml":""},{"id":312916,"favorite":false,"description":"1 Adulto + 4 Bambini (12-17) + 1 Bambino (3-11)","favhtml":""},{"id":312909,"favorite":false,"description":"1 Adulto + 2 Bambini (12-17) + 1 Bambino (3-11)","favhtml":""},{"id":312910,"favorite":false,"description":"2 Adulti + 2 Bambini (12-17) + 1 Bambino (3-11)","favhtml":""},{"id":312911,"favorite":false,"description":"3 Adulti + 2 Bambini (12-17) + 1 Bambino (3-11)","favhtml":""},{"id":312912,"favorite":false,"description":"4 Adulti + 2 Bambini (12-17) + 1 Bambino (3-11)","favhtml":""},{"id":312921,"favorite":false,"description":"3 Adulti + 2 Bambini (3-11)","favhtml":""},{"id":312922,"favorite":false,"description":"4 Adulti + 2 Bambini (3-11)","favhtml":""},{"id":312923,"favorite":false,"description":"5 Adulti + 2 Bambini (3-11)","favhtml":""},{"id":312924,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 2 Bambini (3-11)","favhtml":""},{"id":312917,"favorite":false,"description":"2 Adulti + 4 Bambini (12-17) + 1 Bambino (3-11)","favhtml":""},{"id":312918,"favorite":false,"description":"1 Adulto + 5 Bambini (12-17) + 1 Bambino (3-11)","favhtml":""},{"id":312919,"favorite":false,"description":"1 Adulto + 2 Bambini (3-11)","favhtml":""},{"id":312920,"favorite":false,"description":"2 Adulti + 2 Bambini (3-11)","favhtml":""},{"id":312929,"favorite":false,"description":"2 Adulti + 2 Bambini (12-17) + 2 Bambini (3-11)","favhtml":""},{"id":312930,"favorite":false,"description":"3 Adulti + 2 Bambini (12-17) + 2 Bambini (3-11)","favhtml":""},{"id":312931,"favorite":false,"description":"1 Adulto + 3 Bambini (12-17) + 2 Bambini (3-11)","favhtml":""},{"id":312932,"favorite":false,"description":"2 Adulti + 3 Bambini (12-17) + 2 Bambini (3-11)","favhtml":""},{"id":312925,"favorite":false,"description":"2 Adulti + 1 Bambino (12-17) + 2 Bambini (3-11)","favhtml":""},{"id":312926,"favorite":false,"description":"3 Adulti + 1 Bambino (12-17) + 2 Bambini (3-11)","favhtml":""},{"id":312927,"favorite":false,"description":"4 Adulti + 1 Bambino (12-17) + 2 Bambini (3-11)","favhtml":""},{"id":312928,"favorite":false,"description":"1 Adulto + 2 Bambini (12-17) + 2 Bambini (3-11)","favhtml":""},{"id":312937,"favorite":false,"description":"4 Adulti + 3 Bambini (3-11)","favhtml":""},{"id":312938,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 3 Bambini (3-11)","favhtml":""},{"id":312939,"favorite":false,"description":"2 Adulti + 1 Bambino (12-17) + 3 Bambini (3-11)","favhtml":""},{"id":312940,"favorite":false,"description":"3 Adulti + 1 Bambino (12-17) + 3 Bambini (3-11)","favhtml":""},{"id":312933,"favorite":false,"description":"1 Adulto + 4 Bambini (12-17) + 2 Bambini (3-11)","favhtml":""},{"id":312934,"favorite":false,"description":"1 Adulto + 3 Bambini (3-11)","favhtml":""},{"id":312935,"favorite":false,"description":"2 Adulti + 3 Bambini (3-11)","favhtml":""},{"id":312936,"favorite":false,"description":"3 Adulti + 3 Bambini (3-11)","favhtml":""},{"id":312945,"favorite":false,"description":"2 Adulti + 4 Bambini (3-11)","favhtml":""},{"id":312946,"favorite":false,"description":"3 Adulti + 4 Bambini (3-11)","favhtml":""},{"id":312947,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 4 Bambini (3-11)","favhtml":""},{"id":312948,"favorite":false,"description":"2 Adulti + 1 Bambino (12-17) + 4 Bambini (3-11)","favhtml":""},{"id":312941,"favorite":false,"description":"1 Adulto + 2 Bambini (12-17) + 3 Bambini (3-11)","favhtml":""},{"id":312942,"favorite":false,"description":"2 Adulti + 2 Bambini (12-17) + 3 Bambini (3-11)","favhtml":""},{"id":312943,"favorite":false,"description":"1 Adulto + 3 Bambini (12-17) + 3 Bambini (3-11)","favhtml":""},{"id":312944,"favorite":false,"description":"1 Adulto + 4 Bambini (3-11)","favhtml":""},{"id":312953,"favorite":false,"description":"1 Adulto + 6 Bambini (3-11)","favhtml":""},{"id":312954,"favorite":false,"description":"1 Adulto + 1 Neonato (0-2)","favhtml":""},{"id":312955,"favorite":false,"description":"2 Adulti + 1 Neonato (0-2)","favhtml":""},{"id":312956,"favorite":false,"description":"3 Adulti + 1 Neonato (0-2)","favhtml":""},{"id":312949,"favorite":false,"description":"1 Adulto + 2 Bambini (12-17) + 4 Bambini (3-11)","favhtml":""},{"id":312950,"favorite":false,"description":"1 Adulto + 5 Bambini (3-11)","favhtml":""},{"id":312951,"favorite":false,"description":"2 Adulti + 5 Bambini (3-11)","favhtml":""},{"id":312952,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 5 Bambini (3-11)","favhtml":""},{"id":312961,"favorite":false,"description":"2 Adulti + 1 Bambino (12-17) + 1 Neonato (0-2)","favhtml":""},{"id":312962,"favorite":false,"description":"3 Adulti + 1 Bambino (12-17) + 1 Neonato (0-2)","favhtml":""},{"id":312963,"favorite":false,"description":"4 Adulti + 1 Bambino (12-17) + 1 Neonato (0-2)","favhtml":""},{"id":312964,"favorite":false,"description":"5 Adulti + 1 Bambino (12-17) + 1 Neonato (0-2)","favhtml":""},{"id":312957,"favorite":false,"description":"4 Adulti + 1 Neonato (0-2)","favhtml":""},{"id":312958,"favorite":false,"description":"5 Adulti + 1 Neonato (0-2)","favhtml":""},{"id":312959,"favorite":false,"description":"6 Adulti + 1 Neonato (0-2)","favhtml":""},{"id":312960,"favorite":false,"description":"1 Adulto + 1 Bambino (12-17) + 1 Neonato (0-2)","favhtml":""},{"id":312969,"favorite":false,"description":"1 Adulto + 3 Bambini (12-17) + 1 Neonato (0-2)","favhtml":""},{"id":312970,"favorite":false,"description":"2 Adulti + 3 Bambini (12-17) + 1 Neonato (0-2)","favhtml":""},{"id":312971,"favorite":false,"description":"3 Adulti + 3 Bambini (12-17) + 1 Neonato (0-2)","favhtml":""},{"id":312972,"favorite":false,"description":"1 Adulto + 4 Bambini (12-17) + 1 Neonato (0-2)","favhtml":""},{"id":312965,"favorite":false,"description":"1 Adulto + 2 Bambini (12-17) + 1 Neonato (0-2)","favhtml":""},{"id":312966,"favorite":false,"description":"2 Adulti + 2 Bambini (12-17) + 1 Neonato (0-2)","favhtml":""},{"id":312967,"favorite":false,"description":"3 Adulti + 2 Bambini (12-17) + 1 Neonato (0-2)","favhtml":""},{"id":312968,"favorite":false,"description":"4 Adulti + 2 Bambini (12-17) + 1 Neonato (0-2)","favhtml":""}];it.bookingexpert.SearchBox.guesttypes = [{"id":22670,"defval":2,"min":1,"max":7,"agefrom":17,"agedefault":18,"ageto":null,"ageselect":false,"useagedefault":true,"name":"Adulti"},{"id":22677,"defval":0,"min":0,"max":6,"agefrom":12,"agedefault":12,"ageto":17,"ageselect":true,"useagedefault":true,"name":"Bambini (12-17)"},{"id":22671,"defval":0,"min":0,"max":6,"agefrom":3,"agedefault":3,"ageto":11,"ageselect":true,"useagedefault":true,"name":"Bambini (3-11)"},{"id":22672,"defval":0,"min":0,"max":6,"agefrom":0,"agedefault":0,"ageto":2,"ageselect":false,"useagedefault":true,"name":"Neonati (0-2)"}];it.bookingexpert.SearchBox.collections = [];
